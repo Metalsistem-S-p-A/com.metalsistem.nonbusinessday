@@ -122,7 +122,7 @@ public class GenerateNonBusinessDays extends SvrProcess {
 		int created = 0;
 		ClassLoader previous = Thread.currentThread().getContextClassLoader();
 		try {
-			Thread.currentThread().setContextClassLoader(HolidayManager.class.getClassLoader());
+			Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
 			HolidayManager manager = HolidayManager.getInstance(ManagerParameters.create(code.toLowerCase(), null));
 			for (Holiday h : manager.getHolidays(Year.of(p_Year))) {
 				Timestamp ts = Timestamp.valueOf(h.getDate().atStartOfDay());

@@ -12,7 +12,6 @@ import org.compiere.process.ProcessInfoParameter;
 import org.compiere.process.SvrProcess;
 import org.compiere.util.DB;
 import org.compiere.util.Env;
-import org.jspecify.annotations.NonNull;
 
 import de.focus_shift.jollyday.core.Holiday;
 import de.focus_shift.jollyday.core.HolidayManager;
@@ -126,8 +125,7 @@ public class GenerateNonBusinessDays extends SvrProcess {
 		int created = 0;
 		
 		ManagerParameter mp = ManagerParameters.create(code.toLowerCase(), null);
-	    HolidayManager manager = HolidayManager.getInstance(mp);
-		
+		HolidayManager manager = new DefaultHolidayManager();
 		manager.setConfigurationService(new JacksonConfigurationService());
 		manager.init(mp);
 		

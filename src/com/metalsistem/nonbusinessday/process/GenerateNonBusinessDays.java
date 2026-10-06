@@ -12,10 +12,14 @@ import org.compiere.process.ProcessInfoParameter;
 import org.compiere.process.SvrProcess;
 import org.compiere.util.DB;
 import org.compiere.util.Env;
+import org.jspecify.annotations.NonNull;
 
 import de.focus_shift.jollyday.core.Holiday;
 import de.focus_shift.jollyday.core.HolidayManager;
+import de.focus_shift.jollyday.core.ManagerParameter;
 import de.focus_shift.jollyday.core.ManagerParameters;
+import de.focus_shift.jollyday.core.impl.DefaultHolidayManager;
+import de.focus_shift.jollyday.jackson.JacksonConfigurationService;
 
 /**
  * Generates the non business days of a target year, scoped to one org so each
@@ -120,25 +124,21 @@ public class GenerateNonBusinessDays extends SvrProcess {
 			return 0;
 		Locale locale = Env.getLanguage(getCtx()).getLocale();
 		int created = 0;
-		ClassLoader previous = Thread.currentThread().getContextClassLoader();
-		try {
-			Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-			HolidayManager manager = HolidayManager.getInstance(ManagerParameters.create(code.toLowerCase(), null));
-			for (Holiday h : manager.getHolidays(Year.of(p_Year))) {
-				Timestamp ts = Timestamp.valueOf(h.getDate().atStartOfDay());
-				if (!exists(clientId, p_AD_Org_ID, p_C_Calendar_ID, ts)) {
-					insert(p_AD_Org_ID, p_C_Calendar_ID, p_C_Country_ID, h.getDescription(locale), ts);
-					created++;
-				}
+		
+		ManagerParameter mp = ManagerParameters.create(code.toLowerCase(), null);
+	    HolidayManager manager = HolidayManager.getInstance(mp);
+		
+		manager.setConfigurationService(new JacksonConfigurationService());
+		manager.init(mp);
+		
+		for (Holiday h : manager.getHolidays(Year.of(p_Year))) {
+			Timestamp ts = Timestamp.valueOf(h.getDate().atStartOfDay());
+			if (!exists(clientId, p_AD_Org_ID, p_C_Calendar_ID, ts)) {
+				insert(p_AD_Org_ID, p_C_Calendar_ID, p_C_Country_ID, h.getDescription(locale), ts);
+				created++;
 			}
-		} 
-		catch(Exception ex) {
-			addLog(ex.getMessage());
-			ex.printStackTrace();
 		}
-		finally {
-			Thread.currentThread().setContextClassLoader(previous);
-		}
+		
 		return created;
 	}
 

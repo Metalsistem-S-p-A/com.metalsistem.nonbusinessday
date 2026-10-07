@@ -19,16 +19,5 @@ Bundle-Vendor: METALSISTEM
 Automatic-Module-Name: com.metalsistem.nonbusinessday
 Bundle-ActivationPolicy: lazy
 Bundle-Activator: org.adempiere.plugin.utils.Incremental2PackActivator
-Bundle-ClassPath: .,
- lib/jollyday-core.jar,
- lib/jollyday-jackson.jar,
- lib/jackson-databind.jar,
- lib/jackson-dataformat-xml.jar,
- lib/jackson-core.jar,
- lib/jackson-annotations.jar,
- lib/jspecify.jar,
- lib/threeten-extra.jar,
- lib/woodstox-core.jar,
- lib/stax2-api.jar,
- lib/slf4j-api.jar
+Bundle-ClassPath: .
 Export-Package: com.metalsistem.nonbusinessday.util

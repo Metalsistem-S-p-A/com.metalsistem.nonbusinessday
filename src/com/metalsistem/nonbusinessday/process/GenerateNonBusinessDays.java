@@ -1,37 +1,46 @@
 package com.metalsistem.nonbusinessday.process;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.LocalDate;
-import java.time.Year;
-import java.util.Locale;
+import java.util.List;
+import java.util.Map;
 
 import org.compiere.model.MClientInfo;
 import org.compiere.model.MCountry;
+import org.compiere.model.MSysConfig;
 import org.compiere.model.X_C_NonBusinessDay;
 import org.compiere.process.ProcessInfoParameter;
 import org.compiere.process.SvrProcess;
 import org.compiere.util.DB;
 import org.compiere.util.Env;
-
-import de.focus_shift.jollyday.core.Holiday;
-import de.focus_shift.jollyday.core.HolidayManager;
-import de.focus_shift.jollyday.core.ManagerParameter;
-import de.focus_shift.jollyday.core.ManagerParameters;
-import de.focus_shift.jollyday.core.impl.DefaultHolidayManager;
-import de.focus_shift.jollyday.jackson.JacksonConfigurationService;
+import org.zkoss.json.JSONValue;
 
 /**
  * Generates the non business days of a target year, scoped to one org so each
- * run is self contained (national days under org *, plant days under the plant
- * org):
+ * run is self contained:
  * <ul>
  * <li>the 7 weekday flags are materialized for the whole year (country agnostic);</li>
- * <li>the public holidays of the selected country are computed with Jollyday and
- * materialized stamping C_Country_ID.</li>
+ * <li>the public holidays of the selected country are fetched from a REST API
+ * (URL and JSON extraction paths are configurable via SysConfig, so any holiday
+ * API can be used) and materialized stamping C_Country_ID.</li>
  * </ul>
  * Idempotent (existing rows for the same scope and date are skipped), then rows
- * of that org older than the retention (default 2 years) are removed. No
- * parameter is persisted.
+ * of that org older than the retention (default 2 years) are removed.
+ *
+ * SysConfig keys (client level):
+ * <ul>
+ * <li>LIT_NBD_API_URL  - URL template, placeholders {COUNTRY} {YEAR} {LANG} {LANGUP} {APIKEY}</li>
+ * <li>LIT_NBD_API_KEY  - optional api key substituted into {APIKEY}</li>
+ * <li>LIT_NBD_JSON_LIST- dotted path to the holidays array (empty = response is the array)</li>
+ * <li>LIT_NBD_JSON_DATE- dotted path to the ISO date inside each item (e.g. date.iso, startDate)</li>
+ * <li>LIT_NBD_JSON_NAME- dotted path to the name inside each item (e.g. name, name[0].text)</li>
+ * <li>LIT_NBD_JSON_FILTER - optional "path=value", keep only items whose path equals value (e.g. nationwide=true)</li>
+ * </ul>
  */
 public class GenerateNonBusinessDays extends SvrProcess {
 
@@ -121,23 +130,124 @@ public class GenerateNonBusinessDays extends SvrProcess {
 		String code = country != null ? country.getCountryCode() : null;
 		if (code == null || code.isEmpty())
 			return 0;
-		Locale locale = Env.getLanguage(getCtx()).getLocale();
+
+		String url = MSysConfig.getValue("LIT_NBD_API_URL", "", clientId);
+		if (url == null || url.trim().isEmpty()) {
+			addLog("LIT_NBD_API_URL not configured: public holidays skipped");
+			return 0;
+		}
+		String apiKey = MSysConfig.getValue("LIT_NBD_API_KEY", "", clientId);
+		String listPath = MSysConfig.getValue("LIT_NBD_JSON_LIST", "", clientId);
+		String datePath = MSysConfig.getValue("LIT_NBD_JSON_DATE", "", clientId);
+		String namePath = MSysConfig.getValue("LIT_NBD_JSON_NAME", "", clientId);
+		String filter = MSysConfig.getValue("LIT_NBD_JSON_FILTER", "", clientId);
+
+		String lang = Env.getAD_Language(getCtx());
+		String lang2 = (lang != null && lang.length() >= 2) ? lang.substring(0, 2) : "en";
+		url = url.replace("{COUNTRY}", code)
+				.replace("{YEAR}", String.valueOf(p_Year))
+				.replace("{LANG}", lang2.toLowerCase())
+				.replace("{LANGUP}", lang2.toUpperCase())
+				.replace("{APIKEY}", apiKey == null ? "" : apiKey);
+
+		String body = httpGet(url);
+		if (body == null)
+			return 0;
+
+		Object listObj = jsonPath(JSONValue.parse(body), listPath);
+		if (!(listObj instanceof List)) {
+			addLog("Holiday API: array not found at path '" + listPath + "'");
+			return 0;
+		}
+
+		String filterPath = null, filterValue = null;
+		if (filter != null && filter.contains("=")) {
+			int i = filter.indexOf('=');
+			filterPath = filter.substring(0, i).trim();
+			filterValue = filter.substring(i + 1).trim();
+		}
+
 		int created = 0;
-		
-		ManagerParameter mp = ManagerParameters.create(code.toLowerCase(), null);
-		HolidayManager manager = new DefaultHolidayManager();
-		manager.setConfigurationService(new JacksonConfigurationService());
-		manager.init(mp);
-		
-		for (Holiday h : manager.getHolidays(Year.of(p_Year))) {
-			Timestamp ts = Timestamp.valueOf(h.getDate().atStartOfDay());
+		for (Object item : (List<?>) listObj) {
+			if (filterPath != null) {
+				Object fv = jsonPath(item, filterPath);
+				if (fv == null || !filterValue.equalsIgnoreCase(String.valueOf(fv)))
+					continue;
+			}
+			Object dateObj = jsonPath(item, datePath);
+			if (dateObj == null)
+				continue;
+			LocalDate d;
+			try {
+				d = LocalDate.parse(String.valueOf(dateObj).substring(0, 10));
+			} catch (Exception ex) {
+				continue;
+			}
+			Object nameObj = jsonPath(item, namePath);
+			String name = nameObj != null ? String.valueOf(nameObj) : code + " " + d;
+			Timestamp ts = Timestamp.valueOf(d.atStartOfDay());
 			if (!exists(clientId, p_AD_Org_ID, p_C_Calendar_ID, ts)) {
-				insert(p_AD_Org_ID, p_C_Calendar_ID, p_C_Country_ID, h.getDescription(locale), ts);
+				insert(p_AD_Org_ID, p_C_Calendar_ID, p_C_Country_ID, name, ts);
 				created++;
 			}
 		}
-		
 		return created;
+	}
+
+	/** GET the url and return the body, or null (logged) on any error or non 200. */
+	private String httpGet(String url) {
+		try {
+			HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+			HttpRequest req = HttpRequest.newBuilder(URI.create(url)).header("accept", "application/json")
+					.timeout(Duration.ofSeconds(30)).GET().build();
+			HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+			if (resp.statusCode() != 200) {
+				addLog("Holiday API HTTP " + resp.statusCode());
+				return null;
+			}
+			return resp.body();
+		} catch (Exception ex) {
+			addLog("Holiday API error: " + ex.getMessage());
+			return null;
+		}
+	}
+
+	/**
+	 * Navigate a parsed JSON node (Map/List from org.zkoss.json) by a dotted path.
+	 * Supports object keys and array indexes, e.g. "response.holidays",
+	 * "date.iso", "startDate", "name[0].text". Empty path returns the node itself.
+	 */
+	private static Object jsonPath(Object node, String path) {
+		if (path == null || path.trim().isEmpty())
+			return node;
+		for (String segment : path.trim().split("\\.")) {
+			if (node == null)
+				return null;
+			int bracket = segment.indexOf('[');
+			String key = bracket >= 0 ? segment.substring(0, bracket) : segment;
+			if (!key.isEmpty()) {
+				if (!(node instanceof Map))
+					return null;
+				node = ((Map<?, ?>) node).get(key);
+			}
+			while (bracket >= 0) {
+				int endBracket = segment.indexOf(']', bracket);
+				if (endBracket < 0 || !(node instanceof List))
+					return null;
+				int idx;
+				try {
+					idx = Integer.parseInt(segment.substring(bracket + 1, endBracket).trim());
+				} catch (NumberFormatException ex) {
+					return null;
+				}
+				List<?> list = (List<?>) node;
+				if (idx < 0 || idx >= list.size())
+					return null;
+				node = list.get(idx);
+				bracket = segment.indexOf('[', endBracket);
+			}
+		}
+		return node;
 	}
 
 	private int applyRetention(int clientId) {

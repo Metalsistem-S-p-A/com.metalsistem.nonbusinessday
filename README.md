@@ -1,26 +1,15 @@
 # MsNonBusinessDay
 
-iDempiere plugin to manage non-business days and company closures from a full-screen,
-interactive calendar, and to shift document dates to the next business day.
-
-Closures are stored in the standard `C_NonBusinessDay` table (per organization and
-calendar). Public holidays are fetched from a configurable REST holiday API, so no
-third-party holiday library is bundled.
+iDempiere plugin to manage non-business days and company closures from a full-screen, interactive calendar, and to shift document dates to the next business day.
+Closures are stored in the standard `C_NonBusinessDay` table (per organization and calendar). Public holidays are fetched from a configurable REST holiday API.
 
 ## Features
 
-- Full-screen calendar form (`WNonBusinessDayCalendar`) to view and manage non-business
-  days per organization and per calendar, built on FullCalendar.
-- Create closures by clicking a day or selecting a range; edit or deactivate existing
-  ones from a contextual dialog.
-- Soft delete via an "Active" flag: a closure you untick disappears from the calendar
-  and is not recreated by a later generation.
-- Yearly generation that materializes, into `C_NonBusinessDay`: the selected weekend
-  days (country agnostic) and the public holidays of a country fetched from a REST API
-  configured entirely through SysConfig (URL and JSON extraction paths), so any holiday
-  provider can be used without code changes.
-- Event handler that shifts invoice pay-schedule due dates and order promised dates to
-  the next business day when the payment term has `IsNextBusinessDay` set.
+- Full-screen calendar form (`WNonBusinessDayCalendar`) to view and manage non-business days per organization and per calendar, built on FullCalendar.
+- Create closures by clicking a day or selecting a range; edit or deactivate existing ones from a contextual dialog.
+- Soft delete via an "Active" flag: a closure you untick disappears from the calendar and is not recreated by a later generation.
+- Yearly generation that materializes, into `C_NonBusinessDay`: the selected weekend days (country agnostic) and the public holidays of a country fetched from a REST API configured entirely through SysConfig (URL and JSON extraction paths), so any holiday provider can be used without code changes.
+- Event handler that shifts invoice pay-schedule due dates and order promised dates to the next business day when the payment term has `IsNextBusinessDay` set.
 
 ## Screenshots
 
@@ -35,55 +24,37 @@ New / edit closure dialog:
 ## Requirements
 
 - iDempiere 13 (Tycho / eclipse-plugin build), Java 17+.
-- No external libraries: HTTP via the JDK `java.net.http` client, JSON parsing via
-  `org.zkoss.json` (already available in iDempiere).
-- The iDempiere server must be able to reach the configured holiday API host
-  (internet or outbound proxy).
+- The iDempiere server must be able to reach the configured holiday API host (internet or outbound proxy).
 
 ## Installation
 
-Deploy the bundle. On first activation, `Incremental2PackActivator` applies
-`META-INF/2Pack_<version>.zip`, which creates the dictionary objects (messages, the
-generation process and its parameters, the form and its menu entry). The plugin uses
-only core columns of `C_NonBusinessDay` and the standard `C_PaymentTerm.IsNextBusinessDay`.
+Deploy the bundle. On first activation, `Incremental2PackActivator` applies `META-INF/2Pack_<version>.zip`, which creates the dictionary objects (messages, the generation process and its parameters, the form and its menu entry).
 
 ## Usage
 
 ### The calendar screen
 
 1. Open the form from its menu entry.
-2. In the top toolbar, pick the **Organization** and the **Calendar**. Closures for the
-   visible range are loaded automatically; moving month/year reloads only the dates in
-   view. A modal mask blocks the UI while data is loading.
-3. Colors: blue events are national public holidays (rows carrying a country), orange
-   events are company closures and weekends.
-4. **Create**: click a day, or drag to select a range. The *New* dialog opens; enter a
-   description, confirm the start/end dates and Save. One row per day in the range is
-   created, skipping dates that already exist.
-5. **Edit or remove**: click an existing event. The *Edit* dialog opens. Change the
-   description or date, or untick **Active** and Save to deactivate it (soft delete:
-   it leaves the calendar and will not be recreated by a later generation).
+2. In the top toolbar, pick the **Organization** and the **Calendar**. Closures for the visible range are loaded automatically; moving month/year reloads only the dates in view.
+3. Colors: blue events are national public holidays (rows carrying a country), orange events are company closures and weekends.
+4. **Create**: click a day, or drag to select a range. The *New* dialog opens; enter a description, confirm the start/end dates and Save. One row per day in the range is created, skipping dates that already exist.
+5. **Edit or remove**: click an existing event. The *Edit* dialog opens. Change the description or date, or untick **Active** and Save to deactivate it (soft delete: it leaves the calendar and will not be recreated by a later generation).
 
 ### Generating a year
 
 The **Generate year** button launches the `GenerateNonBusinessDays` process. Parameters:
-
 - `CalendarYear`: target year (defaults to next year).
 - `AD_Org_ID`: organization scope.
 - `C_Calendar_ID`: target calendar.
-- `C_Country_ID`: country whose public holidays are fetched (defaults to the client's
-  default country). Its ISO code feeds the `{COUNTRY}` placeholder of the API URL.
+- `C_Country_ID`: country whose public holidays are fetched (defaults to the client's default country). Its ISO code feeds the `{COUNTRY}` placeholder of the API URL.
 - `LIT_YearsToKeep`: retention; older rows of that org are pruned.
 - `OnMonday` .. `OnSunday`: which weekdays to materialize as closures.
 
-Generation is idempotent and deduplicates by date, so a public holiday that falls on an
-already generated weekend does not create a duplicate row.
+Generation is idempotent and deduplicates by date, so a public holiday that falls on an already generated weekend does not create a duplicate row.
 
 ## Holiday REST API configuration (SysConfig)
 
-Public-holiday generation is driven by these SysConfig keys (client level). URL
-placeholders: `{COUNTRY}` (ISO, e.g. IT), `{YEAR}`, `{LANG}` (lowercase), `{LANGUP}`
-(uppercase), `{APIKEY}`.
+Public-holiday generation is driven by these SysConfig keys (client level). URL placeholders: `{COUNTRY}` (ISO, e.g. IT), `{YEAR}`, `{LANG}` (lowercase), `{LANGUP}` (uppercase), `{APIKEY}`.
 
 | Key | Purpose |
 | --- | --- |
@@ -94,8 +65,7 @@ placeholders: `{COUNTRY}` (ISO, e.g. IT), `{YEAR}`, `{LANG}` (lowercase), `{LANG
 | `LIT_NBD_JSON_NAME` | dotted path to the name in each item (e.g. `name`, `name[0].text`) |
 | `LIT_NBD_JSON_FILTER` | optional `path=value`, keep only items whose path equals value (e.g. `nationwide=true`) |
 
-If `LIT_NBD_API_URL` is empty the process logs a message and skips public holidays
-(weekends are still generated).
+If `LIT_NBD_API_URL` is empty the process logs a message and skips public holidays (weekends are still generated).
 
 ### Example: OpenHolidaysAPI (free, no key, Italian names)
 
@@ -115,15 +85,12 @@ If `LIT_NBD_API_URL` is empty the process logs a message and skips public holida
 
 ## Business-day date shifting
 
-When a payment term has `IsNextBusinessDay` set, the event handler shifts, on document
-prepare/complete, the affected dates to the next business day, reading the closures from
-`C_NonBusinessDay` scoped by the document's organization. It currently covers:
+When a payment term has `IsNextBusinessDay` set, the event handler shifts, on document prepare/complete, the affected dates to the next business day, reading the closures from `C_NonBusinessDay` scoped by the document's organization. It currently covers:
 
 - invoice payment-schedule due dates;
 - order promised dates.
 
-This coverage is not exhaustive: it is a starting point, and further document integrations
-are planned.
+This coverage is not exhaustive: it is a starting point, and further document integrations are planned.
 
 ## License
 

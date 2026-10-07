@@ -377,31 +377,65 @@ public class WNonBusinessDayCalendar implements IFormController, EventListener<E
 				r.setDate1(Timestamp.valueOf(from.atStartOfDay()));
 				r.setIsActive(activeChk.isChecked());
 				r.saveEx();
-			}
-		} else {
-			int calId = getCalendarId();
-			if (calId <= 0) {
-				Dialog.error(form.getWindowNo(), Msg.getMsg(Env.getCtx(), "LIT_SelectCalendar"));
+				dlg.setVisible(false);
+				if (r.isActive()) {
+					JSONArray a = new JSONArray();
+					a.add(buildEvent(r.get_ID(), r.getDate1(), r.getName(), r.getC_Country_ID() > 0));
+					pushUpsert(a);
+				} else {
+					pushRemove(r.get_ID());
+				}
 				return;
 			}
-			int clientId = Env.getAD_Client_ID(Env.getCtx());
-			LocalDate d = from;
-			while (!d.isAfter(to)) {
-				Timestamp ts = Timestamp.valueOf(d.atStartOfDay());
-				if (!existsNbd(clientId, orgId, calId, ts)) {
-					X_C_NonBusinessDay nbd = new X_C_NonBusinessDay(Env.getCtx(), 0, null);
-					nbd.setAD_Org_ID(orgId);
-					nbd.setC_Calendar_ID(calId);
-					nbd.setName(nm);
-					nbd.setDate1(ts);
-					nbd.setIsActive(activeChk.isChecked());
-					nbd.saveEx();
-				}
-				d = d.plusDays(1);
+			dlg.setVisible(false);
+			return;
+		}
+
+		int calId = getCalendarId();
+		if (calId <= 0) {
+			Dialog.error(form.getWindowNo(), Msg.getMsg(Env.getCtx(), "LIT_SelectCalendar"));
+			return;
+		}
+		int clientId = Env.getAD_Client_ID(Env.getCtx());
+		JSONArray created = new JSONArray();
+		LocalDate d = from;
+		while (!d.isAfter(to)) {
+			Timestamp ts = Timestamp.valueOf(d.atStartOfDay());
+			if (!existsNbd(clientId, orgId, calId, ts)) {
+				X_C_NonBusinessDay nbd = new X_C_NonBusinessDay(Env.getCtx(), 0, null);
+				nbd.setAD_Org_ID(orgId);
+				nbd.setC_Calendar_ID(calId);
+				nbd.setName(nm);
+				nbd.setDate1(ts);
+				nbd.setIsActive(activeChk.isChecked());
+				nbd.saveEx();
+				if (nbd.isActive())
+					created.add(buildEvent(nbd.get_ID(), ts, nm, nbd.getC_Country_ID() > 0));
 			}
+			d = d.plusDays(1);
 		}
 		dlg.setVisible(false);
-		refreshRange();
+		pushUpsert(created);
+	}
+
+	private JSONObject buildEvent(int id, Timestamp date, String name, boolean national) {
+		JSONObject ev = new JSONObject();
+		ev.put("id", String.valueOf(id));
+		ev.put("title", name);
+		ev.put("start", date.toLocalDateTime().toLocalDate().toString());
+		ev.put("allDay", Boolean.TRUE);
+		ev.put("color", national ? COLOR_NATIONAL : COLOR_COMPANY);
+		return ev;
+	}
+
+	private void pushUpsert(JSONArray events) {
+		if (events == null || events.isEmpty())
+			return;
+		Clients.evalJavaScript("window.msNbd && window.msNbd.upsertAll('" + calDiv.getUuid() + "'," + events.toJSONString() + ");");
+	}
+
+	private void pushRemove(int id) {
+		Clients.evalJavaScript("window.msNbd && window.msNbd.removeEvent('" + calDiv.getUuid() + "','" + id + "');");
 	}
 
 
@@ -470,14 +504,6 @@ public class WNonBusinessDayCalendar implements IFormController, EventListener<E
 		} finally {
 			DB.close(rs, pstmt);
 		}
-		
-		try {
-			Thread.sleep(10000);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		
 		String uuid = calDiv.getUuid();
 		Clients.evalJavaScript("window.msNbd && window.msNbd.deliver('" + uuid + "'," + events.toJSONString() + ");");
 	}

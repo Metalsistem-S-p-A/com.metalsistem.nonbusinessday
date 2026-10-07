@@ -66,6 +66,24 @@
       if (cal) cal.refetchEvents();
     };
 
+    // Incremental update: add or replace single events without a full refetch.
+    window.msNbd.upsertAll = function (uuid, evs) {
+      var cal = window.msNbd['i_' + uuid];
+      if (!cal || !evs) return;
+      evs.forEach(function (ev) {
+        var ex = cal.getEventById(ev.id);
+        if (ex) ex.remove();
+        cal.addEvent(ev);
+      });
+    };
+
+    window.msNbd.removeEvent = function (uuid, id) {
+      var cal = window.msNbd['i_' + uuid];
+      if (!cal) return;
+      var ex = cal.getEventById(String(id));
+      if (ex) ex.remove();
+    };
+
     window.msNbd.create(__MS_UUID__, __MS_LOCALE__);
   } catch (e) {
     var el = document.getElementById(__MS_UUID__);

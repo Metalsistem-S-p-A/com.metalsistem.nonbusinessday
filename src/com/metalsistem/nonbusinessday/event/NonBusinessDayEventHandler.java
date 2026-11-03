@@ -9,6 +9,7 @@ import org.compiere.model.MInvoicePaySchedule;
 import org.compiere.model.MOrder;
 import org.compiere.model.PO;
 import org.compiere.util.DB;
+import org.osgi.service.component.annotations.Component;
 import org.osgi.service.event.Event;
 
 import com.metalsistem.nonbusinessday.util.BusinessDay;
@@ -23,6 +24,10 @@ import com.metalsistem.nonbusinessday.util.BusinessDay;
  * rows already exist, and re-shifts them. nextBusinessDay is idempotent, so a
  * complete that re-prepares the schedule ends up with the same shifted dates.
  */
+@Component(
+    service = org.osgi.service.event.EventHandler.class,
+    immediate = true
+)
 public class NonBusinessDayEventHandler extends AbstractEventHandler {
 
 	@Override
